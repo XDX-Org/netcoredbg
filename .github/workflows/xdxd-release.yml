@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 env:
-  SOURCE_COMMIT: a4552ab2ba1c9738f518de8e773bf7a6cb7b27ed
+  SOURCE_COMMIT: 8b8c59e8168f46a6dee486958cafd9bb4cffeeec
   RELEASE_TAG: xdx-3.2.0-1092.1
 
 jobs:
