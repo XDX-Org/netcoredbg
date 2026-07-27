@@ -2,6 +2,11 @@ name: Build XDX release
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/xdx-il-breakpoints
+    paths:
+      - .github/workflows/xdxd-release.yml
 
 permissions:
   contents: write
