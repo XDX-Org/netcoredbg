@@ -85,6 +85,7 @@ public:
     virtual HRESULT UpdateLineBreakpoint(int id, int linenum, Breakpoint &breakpoint) = 0;
     virtual HRESULT SetLineBreakpoints(const std::string& filename, const std::vector<LineBreakpoint> &lineBreakpoints, std::vector<Breakpoint> &breakpoints) = 0;
     virtual HRESULT SetFuncBreakpoints(const std::vector<FuncBreakpoint> &funcBreakpoints, std::vector<Breakpoint> &breakpoints) = 0;
+    virtual HRESULT SetIlBreakpoints(const std::vector<IlBreakpoint> &ilBreakpoints, std::vector<IlBreakpointBinding> &bindings) = 0;
     virtual HRESULT SetExceptionBreakpoints(const std::vector<ExceptionBreakpoint> &exceptionBreakpoints, std::vector<Breakpoint> &breakpoints) = 0;
     virtual HRESULT BreakpointActivate(int id, bool act) = 0;
     virtual void EnumerateBreakpoints(std::function<bool (const BreakpointInfo&)>&& callback) = 0;

@@ -305,7 +305,10 @@ HRESULT STDMETHODCALLTYPE ManagedCallback::LoadModule(ICorDebugAppDomain *pAppDo
             m_debugger.pProtocol->EmitBreakpointEvent(event);
         }
     }
-    m_debugger.m_sharedBreakpoints->ManagedCallbackLoadModuleAll(pModule);
+    std::vector<IlBreakpointBinding> ilChanges;
+    m_debugger.m_sharedBreakpoints->ManagedCallbackLoadModuleAll(pModule, ilChanges);
+    for (const IlBreakpointBinding &binding : ilChanges)
+        m_debugger.pProtocol->EmitIlBreakpointEvent(binding);
 
     // enable Debugger.NotifyOfCrossThreadDependency after System.Private.CoreLib.dll loaded (trigger for 1 time call only)
     if (module.name == "System.Private.CoreLib.dll")
@@ -320,6 +323,11 @@ HRESULT STDMETHODCALLTYPE ManagedCallback::LoadModule(ICorDebugAppDomain *pAppDo
 HRESULT STDMETHODCALLTYPE ManagedCallback::UnloadModule(ICorDebugAppDomain *pAppDomain, ICorDebugModule *pModule)
 {
     LogFuncEntry();
+    std::vector<IlBreakpointBinding> ilChanges;
+    m_debugger.m_sharedBreakpoints->ManagedCallbackUnloadModule(pModule, ilChanges);
+    for (const IlBreakpointBinding &binding : ilChanges)
+        m_debugger.pProtocol->EmitIlBreakpointEvent(binding);
+    m_debugger.m_sharedModules->RemoveModule(pModule);
     return m_sharedCallbacksQueue->ContinueAppDomain(pAppDomain);
 }
 

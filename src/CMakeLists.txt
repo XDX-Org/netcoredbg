@@ -123,6 +123,7 @@ set(netcoredbg_SRC
     debugger/breakpoint_hotreload.cpp
     debugger/breakpoints_exception.cpp
     debugger/breakpoints_func.cpp
+    debugger/breakpoints_il.cpp
     debugger/breakpoints_line.cpp
     debugger/breakpoints.cpp
     debugger/breakpointutils.cpp

@@ -183,6 +183,15 @@ void Modules::CleanupAllModules()
     m_modulesAppUpdate.Clear();
 }
 
+void Modules::RemoveModule(ICorDebugModule *pModule)
+{
+    CORDB_ADDRESS moduleAddress;
+    if (FAILED(pModule->GetBaseAddress(&moduleAddress)))
+        return;
+    std::lock_guard<std::mutex> lock(m_modulesInfoMutex);
+    m_modulesInfo.erase(moduleAddress);
+}
+
 std::string GetModuleFileName(ICorDebugModule *pModule)
 {
     WCHAR name[mdNameLen];
