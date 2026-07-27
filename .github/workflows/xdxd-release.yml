@@ -9,7 +9,7 @@ on:
       - .github/workflows/xdxd-release.yml
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   SOURCE_COMMIT: 8b8c59e8168f46a6dee486958cafd9bb4cffeeec
@@ -98,8 +98,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  release:
-    name: Publish pinned binaries
+  validate:
+    name: Validate release assets
     needs: build
     runs-on: ubuntu-24.04
 
@@ -110,18 +110,8 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Create or update release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Validate release assets
         run: |
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" dist/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
-          else
-            gh release create "$RELEASE_TAG" dist/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$SOURCE_COMMIT" \
-              --title "DnSpyXDX NetCoreDbg 3.2.0-1092.1" \
-              --notes "Pinned NetCoreDbg build for DnSpyXDX. Includes the xdx/setIlBreakpoints DAP extension."
-          fi
+          test -f dist/netcoredbg-win64.zip
+          test -f dist/netcoredbg-linux-amd64.tar.gz
+          sha256sum dist/*
