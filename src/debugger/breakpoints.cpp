@@ -224,7 +224,6 @@ HRESULT Breakpoints::ManagedCallbackBreakpoint(ICorDebugThread *pThread, ICorDeb
 
 HRESULT Breakpoints::ManagedCallbackLoadModule(ICorDebugModule *pModule, std::vector<BreakpointEvent> &events)
 {
-    m_uniqueEntryBreakpoint->ManagedCallbackLoadModule(pModule);
     m_uniqueFuncBreakpoints->ManagedCallbackLoadModule(pModule, events);
     m_uniqueLineBreakpoints->ManagedCallbackLoadModule(pModule, events);
     return S_OK;
@@ -232,6 +231,9 @@ HRESULT Breakpoints::ManagedCallbackLoadModule(ICorDebugModule *pModule, std::ve
 
 HRESULT Breakpoints::ManagedCallbackLoadModuleAll(ICorDebugModule *pModule, std::vector<IlBreakpointBinding> &ilChanges)
 {
+    // Stop-at-entry is a metadata/IL breakpoint and must work even when the
+    // module has no PDB.
+    m_uniqueEntryBreakpoint->ManagedCallbackLoadModule(pModule);
     m_uniqueIlBreakpoints->ManagedCallbackLoadModule(pModule, ilChanges);
     m_uniqueHotReloadBreakpoint->ManagedCallbackLoadModuleAll(pModule);
     return S_OK;

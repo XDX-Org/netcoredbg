@@ -157,7 +157,17 @@ static HRESULT TrySetupAsyncEntryBreakpoint(ICorDebugModule *pModule, IMetaDataI
     // Note, in case of async `MoveNext` method, user code don't start from 0 IL offset.
     ULONG32 ilNextOffset = 0;
     const ULONG32 currentVersion = 1; // In case entry breakpoint, this can be only base PDB, not delta PDB for sure.
-    IfFailRet(pModules->GetNextUserCodeILOffsetInMethod(pModule, resultToken, currentVersion, 0, ilNextOffset));
+    // PDB sequence points provide a nicer first user-code offset. Decompiled
+    // applications frequently have no symbols, so fall back to IL_0000 in the
+    // actual async state-machine method instead of leaving the breakpoint on
+    // the compiler-generated <Main> wrapper, which may already have executed.
+    if (FAILED(pModules->GetNextUserCodeILOffsetInMethod(
+        pModule,
+        resultToken,
+        currentVersion,
+        0,
+        ilNextOffset)))
+        ilNextOffset = 0;
 
     entryPointToken = resultToken;
     entryPointOffset = ilNextOffset;

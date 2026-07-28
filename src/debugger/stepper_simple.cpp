@@ -10,7 +10,9 @@
 namespace netcoredbg
 {
 
-HRESULT SimpleStepper::SetupStep(ICorDebugThread *pThread, IDebugger::StepType stepType)
+HRESULT SimpleStepper::SetupStep(ICorDebugThread *pThread,
+                                 IDebugger::StepType stepType,
+                                 bool useJmc)
 {
     HRESULT Status;
 
@@ -29,7 +31,7 @@ HRESULT SimpleStepper::SetupStep(ICorDebugThread *pThread, IDebugger::StepType s
     // Note, we use JMC in runtime all the time (same behaviour as MS vsdbg and MSVS debugger have),
     // since this is the only way provide good speed for stepping in case "JMC disabled".
     // But in case "JMC disabled", debugger must care about different logic for exceptions/stepping/breakpoints.
-    IfFailRet(pStepper2->SetJMC(TRUE));
+    IfFailRet(pStepper2->SetJMC(useJmc ? TRUE : FALSE));
 
     ThreadId threadId(getThreadId(pThread));
 

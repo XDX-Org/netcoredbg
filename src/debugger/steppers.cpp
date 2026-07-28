@@ -83,7 +83,17 @@ HRESULT Steppers::SetupStep(ICorDebugThread *pThread, IDebugger::StepType stepTy
         return E_FAIL;
 
     ULONG32 ilOffset;
-    IfFailRet(m_sharedModules->GetFrameILAndSequencePoint(pFrame, ilOffset, m_StepStartSP));
+    m_hasStepStartSequencePoint =
+        SUCCEEDED(m_sharedModules->GetFrameILAndSequencePoint(
+            pFrame,
+            ilOffset,
+            m_StepStartSP));
+
+    // Decompiled assemblies commonly have no PDB. They can still be stopped by
+    // an IL breakpoint, so fall back to a raw CLR step instead of rejecting all
+    // step commands because no source sequence point is available.
+    if (!m_hasStepStartSequencePoint)
+        return m_simpleStepper->SetupStep(pThread, stepType, false);
 
     IfFailRet(m_asyncStepper->SetupStep(pThread, stepType));
     if (Status == S_OK) // S_FALSE = setup simple stepper
@@ -112,6 +122,15 @@ HRESULT Steppers::ManagedCallbackStepComplete(ICorDebugThread *pThread, CorDebug
     IfFailRet(pThread->GetActiveFrame(&iCorFrame));
     if (iCorFrame == nullptr)
         return E_FAIL;
+
+    // A raw CLR step has no source sequence points to filter. Report its first
+    // completion to the client and reset the active stepper normally.
+    if (!m_hasStepStartSequencePoint)
+    {
+        m_simpleStepper->ManagedCallbackStepComplete();
+        m_asyncStepper->ManagedCallbackStepComplete();
+        return S_FALSE;
+    }
 
     ToRelease<ICorDebugFunction> iCorFunction;
     IfFailRet(iCorFrame->GetFunction(&iCorFunction));
