@@ -987,6 +987,13 @@ HRESULT ManagedDebugger::SetFuncBreakpoints(const std::vector<FuncBreakpoint> &f
     return m_sharedBreakpoints->SetFuncBreakpoints(haveProcess, funcBreakpoints, breakpoints);
 }
 
+HRESULT ManagedDebugger::SetIlBreakpoints(const std::vector<IlBreakpoint> &ilBreakpoints, std::vector<IlBreakpointBinding> &bindings)
+{
+    LogFuncEntry();
+    bool haveProcess = HaveDebugProcess();
+    return m_sharedBreakpoints->SetIlBreakpoints(haveProcess, ilBreakpoints, bindings);
+}
+
 HRESULT ManagedDebugger::BreakpointActivate(int id, bool act)
 {
     if (SUCCEEDED(m_sharedBreakpoints->BreakpointActivate(id, act)))
@@ -1650,9 +1657,12 @@ HRESULT ManagedDebuggerBase::ApplyPdbDeltaAndLineUpdates(const std::string &dllF
 
     // Since we could have new code lines and new methods added, check all breakpoints again.
     std::vector<BreakpointEvent> events;
-    m_sharedBreakpoints->UpdateBreakpointsOnHotReload(pModule, pdbMethodTokens, events);
+    std::vector<IlBreakpointBinding> ilChanges;
+    m_sharedBreakpoints->UpdateBreakpointsOnHotReload(pModule, pdbMethodTokens, events, ilChanges);
     for (const BreakpointEvent &event : events)
         pProtocol->EmitBreakpointEvent(event);
+    for (const IlBreakpointBinding &binding : ilChanges)
+        pProtocol->EmitIlBreakpointEvent(binding);
 
     return S_OK;
 }

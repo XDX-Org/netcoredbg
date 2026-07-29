@@ -1,0 +1,117 @@
+name: Build XDX release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/xdx-il-breakpoints
+    paths:
+      - .github/workflows/xdxd-release.yml
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_COMMIT: 8b8c59e8168f46a6dee486958cafd9bb4cffeeec
+  RELEASE_TAG: xdx-3.2.0-1092.1
+
+jobs:
+  build:
+    name: Build ${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-2022
+            archive: netcoredbg-win64.zip
+          - rid: linux-x64
+            os: ubuntu-24.04
+            archive: netcoredbg-linux-amd64.tar.gz
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out pinned debugger source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang cmake ninja-build libunwind-dev
+
+      - name: Configure Windows build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >
+          cmake -S . -B build-xdx
+          -G "Visual Studio 17 2022"
+          -A x64
+          -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/stage"
+
+      - name: Configure Linux build
+        if: runner.os == 'Linux'
+        env:
+          CC: clang
+          CXX: clang++
+        run: >
+          cmake -S . -B build-xdx
+          -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/stage"
+
+      - name: Build and install
+        run: cmake --build build-xdx --config Release --target install --parallel 2
+
+      - name: Smoke test Windows adapter
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./stage/netcoredbg.exe --help
+
+      - name: Smoke test Linux adapter
+        if: runner.os == 'Linux'
+        run: ./stage/netcoredbg --help
+
+      - name: Package Windows adapter
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path payload/netcoredbg | Out-Null
+          Copy-Item -Path stage/* -Destination payload/netcoredbg -Recurse
+          Compress-Archive -Path payload/netcoredbg -DestinationPath "${{ matrix.archive }}"
+
+      - name: Package Linux adapter
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p payload/netcoredbg
+          cp -a stage/. payload/netcoredbg/
+          tar -czf "${{ matrix.archive }}" -C payload netcoredbg
+
+      - name: Upload release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+  validate:
+    name: Validate release assets
+    needs: build
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Validate release assets
+        run: |
+          test -f dist/netcoredbg-win64.zip
+          test -f dist/netcoredbg-linux-amd64.tar.gz
+          sha256sum dist/*

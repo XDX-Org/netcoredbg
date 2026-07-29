@@ -123,6 +123,7 @@ set(netcoredbg_SRC
     debugger/breakpoint_hotreload.cpp
     debugger/breakpoints_exception.cpp
     debugger/breakpoints_func.cpp
+    debugger/breakpoints_il.cpp
     debugger/breakpoints_line.cpp
     debugger/breakpoints.cpp
     debugger/breakpointutils.cpp
@@ -335,6 +336,8 @@ if (BUILD_MANAGED)
     set(MANAGEDPART_PROJECT ${CMAKE_CURRENT_SOURCE_DIR}/managed/ManagedPart.csproj)
     set(MANAGEDPART_DLL_NAME ManagedPart.dll)
     set(DOTNET_BUILD_RESULT ${CMAKE_CURRENT_BINARY_DIR}/${MANAGEDPART_DLL_NAME})
+    file(GLOB MANAGEDPART_SOURCES CONFIGURE_DEPENDS
+      "${CMAKE_CURRENT_SOURCE_DIR}/managed/*.cs")
 
     find_program(DOTNETCLI dotnet PATHS "${DOTNET_DIR}" ENV PATH NO_DEFAULT_PATH)
 
@@ -368,7 +371,7 @@ if (BUILD_MANAGED)
     add_custom_command(OUTPUT ${DOTNET_BUILD_RESULT}
       COMMAND ${DOTNETCLI} publish ${MANAGEDPART_PROJECT} -r ${RID_NAME}-${CLR_CMAKE_TARGET_ARCH} --self-contained -c ${MANAGEDPART_BUILD_TYPE} -o ${CMAKE_CURRENT_BINARY_DIR} /p:BaseIntermediateOutputPath=${CMAKE_CURRENT_BINARY_DIR}/obj/ /p:BaseOutputPath=${CMAKE_CURRENT_BINARY_DIR}/bin/ ${USE_DBGSHIM_DEPENDENCY}
       WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-      DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/managed/*.cs" "${MANAGEDPART_PROJECT}"
+      DEPENDS ${MANAGEDPART_SOURCES} "${MANAGEDPART_PROJECT}"
       COMMENT "Compiling ${MANAGEDPART_DLL_NAME}"
       VERBATIM
     )

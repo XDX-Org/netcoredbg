@@ -463,6 +463,52 @@ struct FuncBreakpoint
     {}
 };
 
+struct IlBreakpoint
+{
+    std::string id;
+    std::string moduleMvid;
+    uint32_t methodToken;
+    uint32_t ilOffset;
+    bool enabled;
+    std::string condition;
+    std::string hitCondition;
+    std::string logMessage;
+
+    IlBreakpoint(const std::string &id,
+                 const std::string &moduleMvid,
+                 uint32_t methodToken,
+                 uint32_t ilOffset,
+                 bool enabled,
+                 const std::string &condition,
+                 const std::string &hitCondition,
+                 const std::string &logMessage) :
+        id(id),
+        moduleMvid(moduleMvid),
+        methodToken(methodToken),
+        ilOffset(ilOffset),
+        enabled(enabled),
+        condition(condition),
+        hitCondition(hitCondition),
+        logMessage(logMessage)
+    {}
+};
+
+struct IlBreakpointBinding
+{
+    std::string id;
+    bool verified;
+    std::string moduleMvid;
+    uint32_t methodToken;
+    uint32_t ilOffset;
+    std::string message;
+
+    IlBreakpointBinding() :
+        verified(false),
+        methodToken(0),
+        ilOffset(0)
+    {}
+};
+
 // Based on CorDebugExceptionCallbackType, but include info about JMC status in catch handler.
 // https://learn.microsoft.com/en-us/dotnet/core/unmanaged-api/debugging/icordebug/cordebugexceptioncallbacktype-enumeration
 enum class ExceptionCallbackType

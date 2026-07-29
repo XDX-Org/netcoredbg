@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for more information.
 
 #include <sstream>
+#include <limits>
 #include <memory>
 #include <unordered_set>
 #include <vector>
@@ -1373,14 +1374,6 @@ static HRESULT InternalWalkStackVars(Modules *pModules, ICorDebugThread *pThread
     if (pFrame == nullptr)
         return E_FAIL;
 
-    ULONG32 currentIlOffset;
-    Modules::SequencePoint sp;
-    // GetFrameILAndSequencePoint() return "success" code only in case it found sequence point
-    // for current IP, that mean we stop inside user code.
-    // Note, we could have request for not user code, we ignore it and this is OK.
-    if (FAILED(pModules->GetFrameILAndSequencePoint(pFrame, currentIlOffset, sp)))
-        return S_OK;
-
     ToRelease<ICorDebugFunction> pFunction;
     IfFailRet(pFrame->GetFunction(&pFunction));
 
@@ -1402,6 +1395,12 @@ static HRESULT InternalWalkStackVars(Modules *pModules, ICorDebugThread *pThread
 
     ToRelease<ICorDebugILFrame> pILFrame;
     IfFailRet(pFrame->QueryInterface(IID_ICorDebugILFrame, (LPVOID*) &pILFrame));
+    ULONG32 currentIlOffset;
+    CorDebugMappingResult mappingResult;
+    IfFailRet(pILFrame->GetIP(&currentIlOffset, &mappingResult));
+    if (mappingResult == MAPPING_UNMAPPED_ADDRESS ||
+        mappingResult == MAPPING_NO_INFO)
+        currentIlOffset = 0;
 
     ToRelease<ICorDebugValueEnum> pLocalsEnum;
     IfFailRet(pILFrame->EnumerateLocalVariables(&pLocalsEnum));
@@ -1507,7 +1506,14 @@ static HRESULT InternalWalkStackVars(Modules *pModules, ICorDebugThread *pThread
         ULONG32 ilStart;
         ULONG32 ilEnd;
         if (FAILED(pModules->GetFrameNamedLocalVariable(pModule, methodDef, methodVersion, i, wLocalName, &ilStart, &ilEnd)))
-            continue;
+        {
+            // Local names and lexical scopes normally come from the PDB. For
+            // decompiled modules expose stable synthetic names instead of
+            // hiding every local when symbols are unavailable.
+            wLocalName = to_utf16("V_" + std::to_string(i));
+            ilStart = 0;
+            ilEnd = std::numeric_limits<ULONG32>::max();
+        }
 
         if (currentIlOffset < ilStart || currentIlOffset >= ilEnd)
             continue;

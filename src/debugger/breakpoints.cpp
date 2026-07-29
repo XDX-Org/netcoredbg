@@ -6,6 +6,7 @@
 #include "debugger/breakpoint_entry.h"
 #include "debugger/breakpoints_exception.h"
 #include "debugger/breakpoints_func.h"
+#include "debugger/breakpoints_il.h"
 #include "debugger/breakpoints_line.h"
 #include "debugger/breakpoint_hotreload.h"
 #include "debugger/breakpoint_interop_rendezvous.h"
@@ -39,6 +40,7 @@ Breakpoints::Breakpoints(std::shared_ptr<Modules> &sharedModules, std::shared_pt
         m_uniqueEntryBreakpoint(new EntryBreakpoint(sharedModules)),
         m_uniqueExceptionBreakpoints(new ExceptionBreakpoints(sharedEvaluator)),
         m_uniqueFuncBreakpoints(new FuncBreakpoints(sharedModules, sharedVariables)),
+        m_uniqueIlBreakpoints(new IlBreakpoints(sharedModules, sharedVariables)),
         m_uniqueLineBreakpoints(new LineBreakpoints(sharedModules, sharedVariables)),
         m_uniqueHotReloadBreakpoint(new HotReloadBreakpoint(sharedModules, sharedEvaluator, sharedEvalHelpers)),
 #ifdef INTEROP_DEBUGGING
@@ -49,6 +51,8 @@ Breakpoints::Breakpoints(std::shared_ptr<Modules> &sharedModules, std::shared_pt
 #endif // INTEROP_DEBUGGING
         m_nextBreakpointId(1)
     {}
+
+Breakpoints::~Breakpoints() = default;
 
 void Breakpoints::SetJustMyCode(bool enable)
 {
@@ -76,6 +80,7 @@ void Breakpoints::DeleteAllManaged()
 {
     m_uniqueEntryBreakpoint->Delete();
     m_uniqueFuncBreakpoints->DeleteAll();
+    m_uniqueIlBreakpoints->DeleteAll();
     m_uniqueLineBreakpoints->DeleteAll();
     m_uniqueExceptionBreakpoints->DeleteAll();
     m_uniqueHotReloadBreakpoint->Delete();
@@ -117,6 +122,15 @@ HRESULT Breakpoints::SetFuncBreakpoints(bool haveProcess, const std::vector<Func
     });
 }
 
+HRESULT Breakpoints::SetIlBreakpoints(bool haveProcess, const std::vector<IlBreakpoint> &ilBreakpoints, std::vector<IlBreakpointBinding> &bindings)
+{
+    return m_uniqueIlBreakpoints->SetIlBreakpoints(haveProcess, ilBreakpoints, bindings, [&]() -> uint32_t
+    {
+        std::lock_guard<std::mutex> lock(m_nextBreakpointIdMutex);
+        return m_nextBreakpointId++;
+    });
+}
+
 HRESULT Breakpoints::UpdateLineBreakpoint(bool haveProcess, int id, int linenum, Breakpoint &breakpoint)
 {
     return m_uniqueLineBreakpoints->UpdateLineBreakpoint(haveProcess, id, linenum, breakpoint);
@@ -140,9 +154,11 @@ HRESULT Breakpoints::SetExceptionBreakpoints(const std::vector<ExceptionBreakpoi
     });
 }
 
-HRESULT Breakpoints::UpdateBreakpointsOnHotReload(ICorDebugModule *pModule, std::unordered_set<mdMethodDef> &methodTokens, std::vector<BreakpointEvent> &events)
+HRESULT Breakpoints::UpdateBreakpointsOnHotReload(ICorDebugModule *pModule, std::unordered_set<mdMethodDef> &methodTokens,
+                                                   std::vector<BreakpointEvent> &events, std::vector<IlBreakpointBinding> &ilChanges)
 {
     m_uniqueFuncBreakpoints->UpdateBreakpointsOnHotReload(pModule, methodTokens, events);
+    m_uniqueIlBreakpoints->UpdateBreakpointsOnHotReload(pModule, methodTokens, ilChanges);
     m_uniqueLineBreakpoints->UpdateBreakpointsOnHotReload(pModule, methodTokens, events);
     return S_OK;
 }
@@ -167,6 +183,12 @@ HRESULT Breakpoints::ManagedCallbackBreakpoint(ICorDebugThread *pThread, ICorDeb
         Status == S_OK) // S_FALSE - no breakpoint hit
     {
         atEntry = true;
+        return S_FALSE; // S_FALSE - not affect on callback (callback will emit stop event)
+    }
+
+    if (SUCCEEDED(Status = m_uniqueIlBreakpoints->CheckBreakpointHit(pThread, pBreakpoint, breakpoint, bpChangeEvents)) &&
+        Status == S_OK) // S_FALSE - no IL breakpoint hit
+    {
         return S_FALSE; // S_FALSE - not affect on callback (callback will emit stop event)
     }
 
@@ -202,16 +224,24 @@ HRESULT Breakpoints::ManagedCallbackBreakpoint(ICorDebugThread *pThread, ICorDeb
 
 HRESULT Breakpoints::ManagedCallbackLoadModule(ICorDebugModule *pModule, std::vector<BreakpointEvent> &events)
 {
-    m_uniqueEntryBreakpoint->ManagedCallbackLoadModule(pModule);
     m_uniqueFuncBreakpoints->ManagedCallbackLoadModule(pModule, events);
     m_uniqueLineBreakpoints->ManagedCallbackLoadModule(pModule, events);
     return S_OK;
 }
 
-HRESULT Breakpoints::ManagedCallbackLoadModuleAll(ICorDebugModule *pModule)
+HRESULT Breakpoints::ManagedCallbackLoadModuleAll(ICorDebugModule *pModule, std::vector<IlBreakpointBinding> &ilChanges)
 {
+    // Stop-at-entry is a metadata/IL breakpoint and must work even when the
+    // module has no PDB.
+    m_uniqueEntryBreakpoint->ManagedCallbackLoadModule(pModule);
+    m_uniqueIlBreakpoints->ManagedCallbackLoadModule(pModule, ilChanges);
     m_uniqueHotReloadBreakpoint->ManagedCallbackLoadModuleAll(pModule);
     return S_OK;
+}
+
+HRESULT Breakpoints::ManagedCallbackUnloadModule(ICorDebugModule *pModule, std::vector<IlBreakpointBinding> &ilChanges)
+{
+    return m_uniqueIlBreakpoints->ManagedCallbackUnloadModule(pModule, ilChanges);
 }
 
 HRESULT Breakpoints::ManagedCallbackException(ICorDebugThread *pThread, ExceptionCallbackType eventType, const std::string &excModule, StoppedEvent &event)
@@ -223,13 +253,18 @@ HRESULT Breakpoints::AllBreakpointsActivate(bool act)
 {
     HRESULT Status1 = m_uniqueLineBreakpoints->AllBreakpointsActivate(act);
     HRESULT Status2 = m_uniqueFuncBreakpoints->AllBreakpointsActivate(act);
+    HRESULT Status3 = m_uniqueIlBreakpoints->AllBreakpointsActivate(act);
 
-    return FAILED(Status1) ? Status1 : Status2;
+    if (FAILED(Status1))
+        return Status1;
+    return FAILED(Status2) ? Status2 : Status3;
 }
 
 HRESULT Breakpoints::BreakpointActivate(uint32_t id, bool act)
 {
     if (SUCCEEDED(m_uniqueLineBreakpoints->BreakpointActivate(id, act)))
+        return S_OK;
+    if (SUCCEEDED(m_uniqueIlBreakpoints->BreakpointActivate(id, act)))
         return S_OK;
 
     return m_uniqueFuncBreakpoints->BreakpointActivate(id, act);
@@ -242,6 +277,7 @@ void Breakpoints::EnumerateBreakpoints(std::function<bool (const IDebugger::Brea
     std::vector<IDebugger::BreakpointInfo> list;
     m_uniqueLineBreakpoints->AddAllBreakpointsInfo(list);
     m_uniqueFuncBreakpoints->AddAllBreakpointsInfo(list);
+    m_uniqueIlBreakpoints->AddAllBreakpointsInfo(list);
     m_uniqueExceptionBreakpoints->AddAllBreakpointsInfo(list);
 #ifdef INTEROP_DEBUGGING
     m_sharedInteropLineBreakpoints->AddAllBreakpointsInfo(list);

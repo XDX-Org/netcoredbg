@@ -178,6 +178,7 @@ public:
     HRESULT UpdateLineBreakpoint(int id, int linenum, Breakpoint &breakpoint) override;
     HRESULT SetLineBreakpoints(const std::string& filename, const std::vector<LineBreakpoint> &lineBreakpoints, std::vector<Breakpoint> &breakpoints) override;
     HRESULT SetFuncBreakpoints(const std::vector<FuncBreakpoint> &funcBreakpoints, std::vector<Breakpoint> &breakpoints) override;
+    HRESULT SetIlBreakpoints(const std::vector<IlBreakpoint> &ilBreakpoints, std::vector<IlBreakpointBinding> &bindings) override;
     HRESULT SetExceptionBreakpoints(const std::vector<ExceptionBreakpoint> &exceptionBreakpoints, std::vector<Breakpoint> &breakpoints) override;
     HRESULT BreakpointActivate(int id, bool act) override;
     void EnumerateBreakpoints(std::function<bool (const IDebugger::BreakpointInfo&)>&& callback) override;

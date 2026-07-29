@@ -11,6 +11,8 @@
 #include <iomanip>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
+#include <cstdint>
 #include <thread>
 #include <future>
 
@@ -53,7 +55,44 @@ namespace
         "disconnect", "terminate", "continue", "next", "stepIn", "stepOut"};
     // Don't cancel commands related to debugger configuration. For example, breakpoint setup could be done in any time (even if process don't attached at all).
     const std::unordered_set<std::string> g_debuggerSetupCommandSet{
-        "initialize", "setExceptionBreakpoints", "configurationDone", "setBreakpoints", "launch", "disconnect", "terminate", "attach", "setFunctionBreakpoints"};
+        "initialize", "setExceptionBreakpoints", "configurationDone", "setBreakpoints", "launch", "disconnect", "terminate", "attach", "setFunctionBreakpoints", "xdx/setIlBreakpoints"};
+
+    std::string OptionalString(const json &value, const char *name)
+    {
+        auto property = value.find(name);
+        if (property == value.end() || property->is_null())
+            return std::string();
+        return property->get<std::string>();
+    }
+
+    bool IsUuid(const std::string &value)
+    {
+        if (value.size() != 36)
+            return false;
+        for (std::size_t index = 0; index < value.size(); ++index)
+        {
+            if (index == 8 || index == 13 || index == 18 || index == 23)
+            {
+                if (value[index] != '-')
+                    return false;
+            }
+            else if (!std::isxdigit(static_cast<unsigned char>(value[index])))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    json FormXdxLocation(const StackFrame &frame)
+    {
+        if (frame.moduleId.empty() || frame.clrAddr.IsNull())
+            return nullptr;
+        return json{
+            {"moduleMvid", frame.moduleId},
+            {"methodToken", frame.clrAddr.methodToken},
+            {"ilOffset", frame.clrAddr.ilOffset}};
+    }
 } // unnamed namespace
 
 void to_json(json &j, const Source &s) {
@@ -86,6 +125,9 @@ void to_json(json &j, const StackFrame &f) {
         {"moduleId",  f.moduleId}};
     if (!f.source.IsNull())
         j["source"] = f.source;
+    json xdxLocation = FormXdxLocation(f);
+    if (!xdxLocation.is_null())
+        j["xdxLocation"] = std::move(xdxLocation);
 }
 
 void to_json(json &j, const Thread &t) {
@@ -191,6 +233,9 @@ void VSCodeProtocol::EmitStoppedEvent(const StoppedEvent &event)
 
     body["threadId"] = int(event.threadId);
     body["allThreadsStopped"] = event.allThreadsStopped;
+    json xdxLocation = FormXdxLocation(event.frame);
+    if (!xdxLocation.is_null())
+        body["xdxLocation"] = std::move(xdxLocation);
 
     // vsdbg shows additional info, but it is not a part of the protocol
     // body["line"] = event.frame.line;
@@ -393,6 +438,19 @@ void VSCodeProtocol::EmitBreakpointEvent(const BreakpointEvent &event)
     EmitEvent("breakpoint", body);
 }
 
+void VSCodeProtocol::EmitIlBreakpointEvent(const IlBreakpointBinding &binding)
+{
+    json body{
+        {"id", binding.id},
+        {"verified", binding.verified},
+        {"moduleMvid", binding.moduleMvid},
+        {"methodToken", binding.methodToken},
+        {"ilOffset", binding.ilOffset}};
+    if (!binding.message.empty())
+        body["message"] = binding.message;
+    EmitEvent("xdx/ilBreakpoint", body);
+}
+
 void VSCodeProtocol::EmitInitializedEvent()
 {
     LogFuncEntry();
@@ -421,6 +479,7 @@ static void AddCapabilitiesTo(json &capabilities)
     capabilities["supportsSetExpression"] = true;
     capabilities["supportsTerminateRequest"] = true;
     capabilities["supportsCancelRequest"] = true;
+    capabilities["supportsXdxIlBreakpoints"] = true;
 
     capabilities["supportsExceptionInfoRequest"] = true;
     capabilities["supportsExceptionFilterOptions"] = true;
@@ -580,6 +639,67 @@ static HRESULT HandleCommand(std::shared_ptr<IDebugger> &sharedDebugger, std::st
 
         body["breakpoints"] = breakpoints;
 
+        return S_OK;
+    } },
+    { "xdx/setIlBreakpoints", [&](const json &arguments, json &body){
+        HRESULT Status;
+        std::vector<IlBreakpoint> ilBreakpoints;
+        std::unordered_set<std::string> ids;
+
+        const json &requestedBreakpoints = arguments.at("breakpoints");
+        if (!requestedBreakpoints.is_array())
+            return E_INVALIDARG;
+
+        ilBreakpoints.reserve(requestedBreakpoints.size());
+        for (const auto &requested : requestedBreakpoints)
+        {
+            std::string id = requested.at("id").get<std::string>();
+            std::string moduleMvid = requested.at("moduleMvid").get<std::string>();
+            int64_t methodToken = requested.at("methodToken").get<int64_t>();
+            int64_t ilOffset = requested.at("ilOffset").get<int64_t>();
+
+            if (!IsUuid(id) ||
+                !ids.insert(id).second ||
+                !IsUuid(moduleMvid) ||
+                methodToken <= 0 ||
+                methodToken > UINT32_MAX ||
+                (static_cast<uint32_t>(methodToken) & 0xff000000u) != 0x06000000u ||
+                ilOffset < 0 ||
+                ilOffset > UINT32_MAX)
+            {
+                body["message"] =
+                    "IL breakpoints require unique UUID ids, a module MVID, "
+                    "a MethodDef token, and a non-negative IL offset.";
+                return E_INVALIDARG;
+            }
+
+            ilBreakpoints.emplace_back(
+                id,
+                moduleMvid,
+                static_cast<uint32_t>(methodToken),
+                static_cast<uint32_t>(ilOffset),
+                requested.value("enabled", true),
+                OptionalString(requested, "condition"),
+                OptionalString(requested, "hitCondition"),
+                OptionalString(requested, "logMessage"));
+        }
+
+        std::vector<IlBreakpointBinding> bindings;
+        IfFailRet(sharedDebugger->SetIlBreakpoints(ilBreakpoints, bindings));
+
+        body["breakpoints"] = json::array();
+        for (const auto &binding : bindings)
+        {
+            json result{
+                {"id", binding.id},
+                {"verified", binding.verified},
+                {"moduleMvid", binding.moduleMvid},
+                {"methodToken", binding.methodToken},
+                {"ilOffset", binding.ilOffset}};
+            if (!binding.message.empty())
+                result["message"] = binding.message;
+            body["breakpoints"].push_back(std::move(result));
+        }
         return S_OK;
     } },
     { "launch", [&](const json &arguments, json &body){

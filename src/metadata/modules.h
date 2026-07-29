@@ -122,6 +122,7 @@ public:
         std::string &outputText);
 
     void CleanupAllModules();
+    void RemoveModule(ICorDebugModule *pModule);
 
     HRESULT GetFrameNamedLocalVariable(
         ICorDebugModule *pModule,
