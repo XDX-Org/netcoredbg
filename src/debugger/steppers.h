@@ -28,7 +28,8 @@ public:
         m_initialStepType(IDebugger::StepType::STEP_OVER),
         m_justMyCode(true),
         m_stepFiltering(true),
-        m_filteredPrevStep(false)
+        m_filteredPrevStep(false),
+        m_stepWithoutSymbols(false)
     {}
 
     HRESULT SetupStep(ICorDebugThread *pThread, IDebugger::StepType stepType);
@@ -64,6 +65,8 @@ private:
     // Previous step-in was made in method that must not be stepped. We need store this information in order to step-in again as soon, as we leave this method.
     // Usually this is code related to m_stepFiltering, but in some cases we could also filter compiler generated code and code covered by StepThrough attribute.
     bool m_filteredPrevStep;
+    // Source filtering cannot run when current module has no matching PDB.
+    bool m_stepWithoutSymbols;
 };
 
 } // namespace netcoredbg

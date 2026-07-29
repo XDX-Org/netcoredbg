@@ -26,6 +26,10 @@ public:
     {}
 
     HRESULT SetupStep(ICorDebugThread *pThread, IDebugger::StepType stepType);
+    HRESULT SetupStep(
+        ICorDebugThread *pThread,
+        IDebugger::StepType stepType,
+        bool justMyCode);
 
     // Important! Callbacks related methods must control return for succeeded return code.
     // Do not allow debugger API return succeeded (uncontrolled) return code.

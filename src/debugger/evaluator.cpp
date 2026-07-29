@@ -1373,12 +1373,17 @@ static HRESULT InternalWalkStackVars(Modules *pModules, ICorDebugThread *pThread
     if (pFrame == nullptr)
         return E_FAIL;
 
+    // Arguments are described by method metadata and remain available when no
+    // symbols are loaded. Get the current IL offset directly from the frame so a
+    // missing source sequence point does not hide every stack variable.
+    ToRelease<ICorDebugILFrame> pILFrame;
+    IfFailRet(pFrame->QueryInterface(IID_ICorDebugILFrame, (LPVOID*) &pILFrame));
+
     ULONG32 currentIlOffset;
-    Modules::SequencePoint sp;
-    // GetFrameILAndSequencePoint() return "success" code only in case it found sequence point
-    // for current IP, that mean we stop inside user code.
-    // Note, we could have request for not user code, we ignore it and this is OK.
-    if (FAILED(pModules->GetFrameILAndSequencePoint(pFrame, currentIlOffset, sp)))
+    CorDebugMappingResult mappingResult;
+    IfFailRet(pILFrame->GetIP(&currentIlOffset, &mappingResult));
+    if (mappingResult == MAPPING_UNMAPPED_ADDRESS ||
+        mappingResult == MAPPING_NO_INFO)
         return S_OK;
 
     ToRelease<ICorDebugFunction> pFunction;
@@ -1399,9 +1404,6 @@ static HRESULT InternalWalkStackVars(Modules *pModules, ICorDebugThread *pThread
 
     mdMethodDef methodDef;
     IfFailRet(pFunction->GetToken(&methodDef));
-
-    ToRelease<ICorDebugILFrame> pILFrame;
-    IfFailRet(pFrame->QueryInterface(IID_ICorDebugILFrame, (LPVOID*) &pILFrame));
 
     ToRelease<ICorDebugValueEnum> pLocalsEnum;
     IfFailRet(pILFrame->EnumerateLocalVariables(&pLocalsEnum));
@@ -1506,11 +1508,19 @@ static HRESULT InternalWalkStackVars(Modules *pModules, ICorDebugThread *pThread
         WSTRING wLocalName;
         ULONG32 ilStart;
         ULONG32 ilEnd;
-        if (FAILED(pModules->GetFrameNamedLocalVariable(pModule, methodDef, methodVersion, i, wLocalName, &ilStart, &ilEnd)))
-            continue;
-
-        if (currentIlOffset < ilStart || currentIlOffset >= ilEnd)
-            continue;
+        bool hasSymbolName = SUCCEEDED(pModules->GetFrameNamedLocalVariable(
+            pModule, methodDef, methodVersion, i, wLocalName, &ilStart, &ilEnd));
+        if (hasSymbolName)
+        {
+            if (currentIlOffset < ilStart || currentIlOffset >= ilEnd)
+                continue;
+        }
+        else
+        {
+            // Local slots remain available through ICorDebug even when symbols
+            // are missing or do not match the module. Use stable IL-style names.
+            wLocalName = to_utf16("V_" + std::to_string(i));
+        }
 
         auto getValue = [&](ICorDebugValue **ppResultValue, int) -> HRESULT
         {
@@ -1526,7 +1536,8 @@ static HRESULT InternalWalkStackVars(Modules *pModules, ICorDebugThread *pThread
 
         // Note, this method could have lambdas inside, display class local objects must be also checked,
         // since this objects could hold current method local variables too.
-        if (GetLocalOrFieldNameKind(wLocalName) == GeneratedNameKind::DisplayClassLocalOrField)
+        if (hasSymbolName &&
+            GetLocalOrFieldNameKind(wLocalName) == GeneratedNameKind::DisplayClassLocalOrField)
         {
             ToRelease<ICorDebugValue> iCorDisplayClassValue;
             IfFailRet(getValue(&iCorDisplayClassValue, defaultEvalFlags));

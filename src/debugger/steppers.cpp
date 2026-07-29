@@ -71,6 +71,7 @@ HRESULT Steppers::SetupStep(ICorDebugThread *pThread, IDebugger::StepType stepTy
 {
     HRESULT Status;
     m_filteredPrevStep = false;
+    m_stepWithoutSymbols = false;
     m_initialStepType = stepType;
 
     ToRelease<ICorDebugProcess> pProcess;
@@ -83,7 +84,14 @@ HRESULT Steppers::SetupStep(ICorDebugThread *pThread, IDebugger::StepType stepTy
         return E_FAIL;
 
     ULONG32 ilOffset;
-    IfFailRet(m_sharedModules->GetFrameILAndSequencePoint(pFrame, ilOffset, m_StepStartSP));
+    if (FAILED(m_sharedModules->GetFrameILAndSequencePoint(
+        pFrame, ilOffset, m_StepStartSP)))
+    {
+        // No matching symbols: perform a raw runtime step and stop on its first
+        // completion instead of applying source/JMC filtering.
+        m_stepWithoutSymbols = true;
+        return m_simpleStepper->SetupStep(pThread, stepType, false);
+    }
 
     IfFailRet(m_asyncStepper->SetupStep(pThread, stepType));
     if (Status == S_OK) // S_FALSE = setup simple stepper
@@ -107,6 +115,14 @@ HRESULT Steppers::ManagedCallbackBreakpoint(ICorDebugAppDomain *pAppDomain, ICor
 HRESULT Steppers::ManagedCallbackStepComplete(ICorDebugThread *pThread, CorDebugStepReason reason)
 {
     HRESULT Status;
+
+    if (m_stepWithoutSymbols)
+    {
+        m_stepWithoutSymbols = false;
+        m_simpleStepper->ManagedCallbackStepComplete();
+        m_asyncStepper->ManagedCallbackStepComplete();
+        return S_FALSE;
+    }
 
     ToRelease<ICorDebugFrame> iCorFrame;
     IfFailRet(pThread->GetActiveFrame(&iCorFrame));
@@ -258,6 +274,7 @@ HRESULT Steppers::ManagedCallbackStepComplete(ICorDebugThread *pThread, CorDebug
 HRESULT Steppers::DisableAllSteppers(ICorDebugProcess *pProcess)
 {
     HRESULT Status;
+    m_stepWithoutSymbols = false;
     IfFailRet(m_simpleStepper->DisableAllSteppers(pProcess));
     return m_asyncStepper->DisableAllSteppers();
 }
