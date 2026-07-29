@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - codex/xdx-il-breakpoints
+      - codex/xdx-no-symbol-debugging
     paths:
       - .github/workflows/xdxd-release.yml
 
@@ -12,8 +12,8 @@ permissions:
   contents: write
 
 env:
-  SOURCE_COMMIT: a4552ab2ba1c9738f518de8e773bf7a6cb7b27ed
-  RELEASE_TAG: xdx-3.2.0-1092.1
+  SOURCE_COMMIT: 7be52ab5cf348c75ad028e3578d2fb0b96df748d
+  RELEASE_TAG: xdx-3.2.0-1092.2
 
 jobs:
   build:
@@ -122,6 +122,6 @@ jobs:
             gh release create "$RELEASE_TAG" dist/* \
               --repo "$GITHUB_REPOSITORY" \
               --target "$SOURCE_COMMIT" \
-              --title "DnSpyXDX NetCoreDbg 3.2.0-1092.1" \
-              --notes "Pinned NetCoreDbg build for DnSpyXDX. Includes the xdx/setIlBreakpoints DAP extension."
+              --title "DnSpyXDX NetCoreDbg 3.2.0-1092.2" \
+              --notes "Pinned NetCoreDbg build for DnSpyXDX. Includes xdx/setIlBreakpoints plus symbol-less frame variables and stepping."
           fi
