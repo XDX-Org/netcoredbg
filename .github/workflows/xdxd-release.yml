@@ -12,8 +12,8 @@ permissions:
   contents: read
 
 env:
-  SOURCE_COMMIT: 8b8c59e8168f46a6dee486958cafd9bb4cffeeec
-  RELEASE_TAG: xdx-3.2.0-1092.1
+  SOURCE_COMMIT: deed5a07aec8bd10c62d4caf1349952762892e4e
+  RELEASE_TAG: xdx-3.2.0-1092.3
 
 jobs:
   build:
