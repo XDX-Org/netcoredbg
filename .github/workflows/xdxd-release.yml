@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 env:
-  # Pin release artifacts to the reviewed source commit.
+  # Pin release artifacts to the reviewed source commit and publish them together.
   SOURCE_COMMIT: deed5a07aec8bd10c62d4caf1349952762892e4e
   RELEASE_TAG: xdx-3.2.0-1092.3
 
