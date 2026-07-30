@@ -699,6 +699,18 @@ static bool IsSynthesizedLocalName(WCHAR *mdName, ULONG nameLen)
            (nameLen > 4 && starts_with(mdName, W("CS$<")));
 }
 
+static bool TryGetPrimaryConstructorParameterName(WCHAR *mdName, std::string &name)
+{
+    WSTRING generatedName(mdName);
+    if (generatedName.size() < 4 || generatedName.front() != W('<') ||
+        generatedName.compare(generatedName.size() - 2, 2, W(">P")) != 0)
+        return false;
+
+    WSTRING parameterName = generatedName.substr(1, generatedName.size() - 3);
+    name = to_utf8(parameterName.data());
+    return !name.empty();
+}
+
 static HRESULT InternalWalkMembers(EvalHelpers *pEvalHelpers, ICorDebugValue *pInputValue, ICorDebugThread *pThread, FrameLevel frameLevel,
                                    ICorDebugType *pTypeCast, bool provideSetterData, Evaluator::WalkMembersCallback cb)
 {
@@ -828,14 +840,17 @@ static HRESULT InternalWalkMembers(EvalHelpers *pEvalHelpers, ICorDebugValue *pI
             // More about compiler generated names in Roslyn sources:
             // https://github.com/dotnet/roslyn/blob/315c2e149ba7889b0937d872274c33fcbfe9af5f/src/Compilers/CSharp/Portable/Symbols/Synthesized/GeneratedNames.cs
             // Note, uncontrolled access to internal compiler added field or its properties may break debugger work.
-            if (IsSynthesizedLocalName(mdName, nameLen))
+            std::string name;
+            if (IsSynthesizedLocalName(mdName, nameLen) &&
+                !TryGetPrimaryConstructorParameterName(mdName, name))
                 return S_OK;
 
             bool is_static = (fieldAttr & fdStatic);
             if (isNull && !is_static)
                 return S_OK;
 
-            std::string name = to_utf8(mdName);
+            if (name.empty())
+                name = to_utf8(mdName);
 
             auto getValue = [&](ICorDebugValue **ppResultValue, int) -> HRESULT
             {
@@ -2022,4 +2037,3 @@ HRESULT Evaluator::LookupExtensionMethods(ICorDebugType *pType,
 }
 
 } // namespace netcoredbg
-
